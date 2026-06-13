@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Admin Super</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body class="container p-5 bg-light">
+    <div class="d-flex justify-content-between align-items-center mb-5 p-3 bg-white shadow-sm rounded">
+        <h2 class="mb-0 text-dark fw-bold">Pusat Kontrol Pengajar (Admin)</h2>
+        <a href="/logout" class="btn btn-danger btn-sm fw-bold">Log Out Admin</a>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-success alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+         animate
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card p-4 mb-5 shadow-sm border-primary bg-white" style="min-height: 420px;">
+                <h5 class="text-primary mb-4 fw-bold">1. Buat Tugas Kuis & Waktu Deadline</h5>
+                <form action="/admin/tambah-kuis" method="POST">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Judul Kuis Baru</label>
+                        <input type="text" name="judul" class="form-control" required placeholder="Contoh: Kuis UTS Teori Data">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Tentukan Deadline</label>
+                        <input type="datetime-local" name="deadline" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 mt-3 fw-bold">Buat Wadah Kuis</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card p-4 mb-5 shadow-sm border-warning bg-white" style="min-height: 420px;">
+                <h5 class="text-warning mb-4 fw-bold text-dark">2. Isi Soal & Pilihan Jawaban</h5>
+                <form action="/admin/tambah-soal" method="POST">
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold">Pilih Kuis Tujuan</label>
+                        <select name="quiz_id" class="form-select text-dark" required>
+                            <option value="">-- Pilih Kuis --</option>
+                            {% for quiz in quizzes %}
+                            <option value="{{ quiz.id }}">{{ quiz.judul }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold">Pertanyaan Soal</label>
+                        <input type="text" name="pertanyaan" class="form-control" required placeholder="Tulis soal di sini...">
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <input type="text" name="opsi_a" class="form-control form-control-sm" required placeholder="Pilihan A">
+                        </div>
+                        <div class="col-6">
+                            <input type="text" name="opsi_b" class="form-control form-control-sm" required placeholder="Pilihan B">
+                        </div>
+                        <div class="col-6">
+                            <input type="text" name="opsi_c" class="form-control form-control-sm" required placeholder="Pilihan C">
+                        </div>
+                        <div class="col-6">
+                            <input type="text" name="opsi_d" class="form-control form-control-sm" required placeholder="Pilihan D">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Kunci Jawaban Benar</label>
+                        <select name="jawaban_benar" class="form-select form-select-sm fw-bold text-primary" required>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100 text-white fw-bold">Simpan & Tambah Soal</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-2 mb-5">
+        <div class="col-md-5 mb-4">
+            <h5 class="fw-bold text-secondary mb-3">Daftar Kuis Aktif</h5>
+            <div class="card shadow-sm rounded bg-white">
+                <ul class="list-group list-group-flush">
+                    {% for quiz in quizzes %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+                        <div class="me-2">
+                            <span class="fw-bold text-dark">{{ quiz.judul }}</span>
+                        </div>
+                        <a href="/admin/hapus-kuis/{{ quiz.id }}" class="btn btn-danger btn-sm fw-semibold px-3" onclick="return confirm('Hapus kuis ini beserta seluruh soal & nilai di dalamnya secara permanen?')">Hapus</a>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted text-center py-4">Belum ada judul kuis yang dibuat.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        
+        <div class="col-md-7 mb-4">
+            <h5 class="fw-bold text-secondary mb-3">Daftar Bank Soal Active</h5>
+            <div class="card shadow-sm bg-white p-2 rounded" style="max-height: 290px; overflow-y: auto;">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Kuis Asal</th>
+                            <th>Pertanyaan Soal</th>
+                            <th class="text-center">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for q in all_questions %}
+                        <tr>
+                            <td><span class="badge bg-secondary text-wrap">{{ q.judul }}</span></td>
+                            <td><small class="text-dark fw-semibold">{{ q.pertanyaan }}</small></td>
+                            <td class="text-center">
+                                <a href="/admin/hapus-soal/{{ q.id }}" class="btn btn-outline-danger btn-sm fw-bold px-2" onclick="return confirm('Yakin ingin menghapus soal ini dari kuis?')">Hapus</a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4"><small>Belum ada soal yang diinputkan ke kuis mana pun.</small></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 shadow-sm rounded">
+        <h4 class="fw-bold text-dark mb-4">Daftar Nilai & Hasil Kerja Pengguna (Mahasiswa)</h4>
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th style="width: 15%;">NIM</th>
+                        <th style="width: 25%;">Nama Mahasiswa</th>
+                        <th style="width: 25%;">Kuis Yang Dikerjakan</th>
+                        <th style="width: 10%;" class="text-center">Total Skor</th>
+                        <th style="width: 15%;">Komentar/Catatan Anda</th>
+                        <th style="width: 10%;" class="text-center">Tindakan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in peserta_nilai %}
+                    <tr>
+                        <td><b class="text-primary">{{ p.nim }}</b></td>
+                        <td class="fw-semibold text-dark">{{ p.nama }}</td>
+                        <td>{{ p.judul }}</td>
+                        <td class="text-center"><span class="badge bg-success p-2 fs-6" style="min-width: 50px;">{{ p.nilai_total }}</span></td>
+                        <td>
+                            <span class="text-muted">
+                                <i>{{ p.komentar if p.komentar else 'Belum diberikan catatan' }}</i>
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <a href="/admin/komentar/{{ p.grade_id }}" class="btn btn-sm btn-dark fw-semibold">Beri Catatan</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">Belum ada mahasiswa yang mengumpulkan kuis.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
