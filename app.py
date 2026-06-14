@@ -148,36 +148,43 @@ def kerjakan_kuis(quiz_id):
     
     waktu_sekarang = datetime.now()
     
+    # Perbaikan proteksi pembacaan waktu deadline PostgreSQL
     if kuis and kuis['deadline']:
         try:
-            deadline_dt = datetime.strptime(kuis['deadline'], '%Y-%m-%dT%H:%M')
-        except ValueError:
-            try:
-                deadline_dt = datetime.strptime(kuis['deadline'], '%Y-%m-%d %H:%M:%S.%f')
-            except ValueError:
-                deadline_dt = datetime.strptime(kuis['deadline'], '%Y-%m-%d %H:%M:%S')
+            deadline_str = str(kuis['deadline']).strip()
+            if 'T' in deadline_str:
+                deadline_dt = datetime.strptime(deadline_str, '%Y-%m-%dT%H:%M')
+            elif '.' in deadline_str:
+                deadline_dt = datetime.strptime(deadline_str, '%Y-%m-%d %H:%M:%S.%f')
+            else:
+                deadline_dt = datetime.strptime(deadline_str, '%Y-%m-%d %H:%M:%S')
                 
-        if waktu_sekarang > deadline_dt:
-            cursor.close()
-            conn.close()
-            flash("Maaf, batas waktu (deadline) kuis ini sudah habis!")
-            return redirect(url_for('dashboard_kuis'))
+            if waktu_sekarang > deadline_dt:
+                cursor.close()
+                conn.close()
+                flash("Maaf, batas waktu (deadline) kuis ini sudah habis!")
+                return redirect(url_for('dashboard_kuis'))
+        except Exception as e:
+            print(f"Log info error parsing deadline: {e}")
+            pass
 
     if request.method == 'POST':
         cursor.execute('SELECT * FROM questions WHERE quiz_id = %s', (quiz_id,))
         questions = cursor.fetchall()
         
         jawaban_benar_count = 0
-        total_soal = len(questions)
+        total_soal = len(questions) if questions else 0
 
-        for q in questions:
-            jawaban_user = request.form.get(f"question_{q['id']}")
-            if jawaban_user == q['jawaban_benar']:
-                jawaban_benar_count += 1
+        if questions:
+            for q in questions:
+                jawaban_user = request.form.get(f"question_{q['id']}")
+                if jawaban_user == q['jawaban_benar']:
+                    jawaban_benar_count += 1
         
+        # Proteksi ZeroDivisionError jika admin belum membuat soal kuis
         nilai_akhir = int((jawaban_benar_count / total_soal) * 100) if total_soal > 0 else 0
 
-        # Menyimpan waktu_submit sebagai string agar aman
+        # Menyimpan waktu_submit sebagai string agar aman di PostgreSQL
         waktu_str = waktu_sekarang.strftime('%Y-%m-%d %H:%M:%S')
 
         cursor.execute('''
