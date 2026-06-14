@@ -10,13 +10,8 @@ app.secret_key = 'sikc_poltekba_key'  # Kunci pengaman untuk session
 
 # ================= 1. FUNGSI KONEKSI DATABASE (POSTGRESQL CLOUD) =================
 def get_db_connection():
-    # Mengambil URL database cloud yang otomatis disediakan oleh Vercel setelah dihubungkan
     database_url = os.environ.get('POSTGRES_URL')
-    
-    # Melakukan koneksi ke Postgres Cloud
     conn = psycopg2.connect(database_url, sslmode='require')
-    
-    # Menggunakan DictCursor agar hasil query berbentuk dictionary (kompatibel dengan kode lama)
     conn.cursor_factory = DictCursor
     return conn
 
@@ -25,7 +20,6 @@ def inisialisasi_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Tabel Pengguna (Mahasiswa) - Menggunakan SERIAL khas PostgreSQL
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -34,7 +28,6 @@ def inisialisasi_database():
     )
     ''')
     
-    # Tabel Kuis
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS quizzes (
         id SERIAL PRIMARY KEY,
@@ -43,7 +36,6 @@ def inisialisasi_database():
     )
     ''')
     
-    # Tabel Soal
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS questions (
         id SERIAL PRIMARY KEY,
@@ -57,7 +49,6 @@ def inisialisasi_database():
     )
     ''')
     
-    # Tabel Nilai & Komentar
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS grades (
         id SERIAL PRIMARY KEY,
@@ -73,7 +64,6 @@ def inisialisasi_database():
     cursor.close()
     conn.close()
 
-# Jalankan fungsi pembuatan tabel di atas secara aman
 try:
     inisialisasi_database()
 except Exception as e:
@@ -92,13 +82,10 @@ def login():
         cursor = conn.cursor()
         
         try:
-            # Mengubah placeholder menjadi %s khas PostgreSQL
             cursor.execute('INSERT INTO users (nim, nama) VALUES (%s, %s)', (nim, nama))
             conn.commit()
-        except errors.UniqueViolation:
-            # Jika ada IntegrityError / UniqueViolation (NIM sudah terdaftar), batalkan transaksi yang gagal secara aman
-            conn.rollback()
         except Exception:
+            # Mengamankan jika user dengan NIM tersebut sudah ada agar tidak error
             conn.rollback()
             
         cursor.execute('SELECT * FROM users WHERE nim = %s', (nim,))
@@ -107,9 +94,10 @@ def login():
         conn.close()
 
         if user:
-            session['user_id'] = user['id']
-            session['nama'] = user['nama']
-            session['nim'] = user['nim']
+            # Konversi ID ke string untuk mengamankan Session Flask
+            session['user_id'] = str(user['id'])
+            session['nama'] = str(user['nama'])
+            session['nim'] = str(user['nim'])
             session['role'] = 'user'
             return redirect(url_for('dashboard_kuis'))
         
@@ -125,13 +113,24 @@ def dashboard_kuis():
     cursor.execute('SELECT * FROM quizzes')
     quizzes = cursor.fetchall()
     
-    cursor.execute('SELECT quiz_id, nilai_total, komentar FROM grades WHERE user_id = %s', (session['user_id'],))
-    grades = cursor.fetchall()
-    
+    # Amankan filter integer ID user pada query Postgres
+    try:
+        user_id_int = int(session['user_id'])
+        cursor.execute('SELECT quiz_id, nilai_total, komentar FROM grades WHERE user_id = %s', (user_id_int,))
+        grades = cursor.fetchall()
+    except Exception:
+        grades = []
+        
     cursor.close()
     conn.close()
     
-    status_kuis = {g['quiz_id']: {'nilai': g['nilai_total'], 'komentar': g['komentar']} for g in grades}
+    # Proteksi jika daftar nilai kosong
+    status_kuis = {}
+    if grades:
+        for g in grades:
+            if g['quiz_id'] is not None:
+                status_kuis[g['quiz_id']] = {'nilai': g['nilai_total'], 'komentar': g['komentar']}
+                
     waktu_sekarang = datetime.now()
     
     return render_template('kuis.html', quizzes=quizzes, status_kuis=status_kuis, waktu_sekarang=waktu_sekarang)
@@ -148,7 +147,6 @@ def kerjakan_kuis(quiz_id):
     
     waktu_sekarang = datetime.now()
     
-    # Perbaikan proteksi pembacaan waktu deadline PostgreSQL
     if kuis and kuis['deadline']:
         try:
             deadline_str = str(kuis['deadline']).strip()
@@ -181,18 +179,19 @@ def kerjakan_kuis(quiz_id):
                 if jawaban_user == q['jawaban_benar']:
                     jawaban_benar_count += 1
         
-        # Proteksi ZeroDivisionError jika admin belum membuat soal kuis
         nilai_akhir = int((jawaban_benar_count / total_soal) * 100) if total_soal > 0 else 0
-
-        # Menyimpan waktu_submit sebagai string agar aman di PostgreSQL
         waktu_str = waktu_sekarang.strftime('%Y-%m-%d %H:%M:%S')
 
-        cursor.execute('''
-            INSERT INTO grades (user_id, quiz_id, nilai_total, komentar, waktu_submit)
-            VALUES (%s, %s, %s, %s, %s)
-        ''', (session['user_id'], quiz_id, nilai_akhir, '', waktu_str))
+        try:
+            user_id_int = int(session['user_id'])
+            cursor.execute('''
+                INSERT INTO grades (user_id, quiz_id, nilai_total, komentar, waktu_submit)
+                VALUES (%s, %s, %s, %s, %s)
+            ''', (user_id_int, quiz_id, nilai_akhir, '', waktu_str))
+            conn.commit()
+        except Exception:
+            conn.rollback()
         
-        conn.commit()
         cursor.close()
         conn.close()
         return redirect(url_for('dashboard_kuis'))
