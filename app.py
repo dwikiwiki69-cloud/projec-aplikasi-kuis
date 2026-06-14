@@ -9,8 +9,9 @@ app = Flask(__name__)
 app.secret_key = 'sikc_poltekba_key'  # Kunci pengaman untuk session
 
 # ================= 1. FUNGSI KONEKSI DATABASE (POSTGRESQL CLOUD) =================
+# Menggunakan PENYIMPANAN_URL sesuai dengan Awalan Kustom di Vercel kamu
 def get_db_connection():
-    database_url = os.environ.get('POSTGRES_URL')
+    database_url = os.environ.get('PENYIMPANAN_URL')
     conn = psycopg2.connect(database_url, sslmode='require')
     conn.cursor_factory = DictCursor
     return conn
