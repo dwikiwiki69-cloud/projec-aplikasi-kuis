@@ -85,7 +85,6 @@ def login():
             cursor.execute('INSERT INTO users (nim, nama) VALUES (%s, %s)', (nim, nama))
             conn.commit()
         except Exception:
-            # Mengamankan jika user dengan NIM tersebut sudah ada agar tidak error
             conn.rollback()
             
         cursor.execute('SELECT * FROM users WHERE nim = %s', (nim,))
@@ -94,7 +93,6 @@ def login():
         conn.close()
 
         if user:
-            # Konversi ID ke string untuk mengamankan Session Flask
             session['user_id'] = str(user['id'])
             session['nama'] = str(user['nama'])
             session['nim'] = str(user['nim'])
@@ -113,7 +111,6 @@ def dashboard_kuis():
     cursor.execute('SELECT * FROM quizzes')
     quizzes = cursor.fetchall()
     
-    # Amankan filter integer ID user pada query Postgres
     try:
         user_id_int = int(session['user_id'])
         cursor.execute('SELECT quiz_id, nilai_total, komentar FROM grades WHERE user_id = %s', (user_id_int,))
@@ -124,7 +121,6 @@ def dashboard_kuis():
     cursor.close()
     conn.close()
     
-    # Proteksi jika daftar nilai kosong
     status_kuis = {}
     if grades:
         for g in grades:
