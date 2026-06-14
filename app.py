@@ -1,16 +1,23 @@
+import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash
-import sqlite3
+import psycopg2
+from psycopg2.extras import DictCursor
+from psycopg2 import errors
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'sikc_poltekba_key' # Kunci pengaman untuk session
+app.secret_key = 'sikc_poltekba_key'  # Kunci pengaman untuk session
 
-# ================= 1. FUNGSI KONEKSI DATABASE (SQLITE) =================
+# ================= 1. FUNGSI KONEKSI DATABASE (POSTGRESQL CLOUD) =================
 def get_db_connection():
-    # Menggunakan SQLite berbasis file 'database.db' (Gratis di PythonAnywhere)
-    conn = sqlite3.connect('database.db')
-    # Mengubah hasil query menjadi format dictionary agar kompatibel dengan kode lama Anda
-    conn.row_factory = sqlite3.Row
+    # Mengambil URL database cloud yang otomatis disediakan oleh Vercel setelah dihubungkan
+    database_url = os.environ.get('POSTGRES_URL')
+    
+    # Melakukan koneksi ke Postgres Cloud
+    conn = psycopg2.connect(database_url, sslmode='require')
+    
+    # Menggunakan DictCursor agar hasil query berbentuk dictionary (kompatibel dengan kode lama)
+    conn.cursor_factory = DictCursor
     return conn
 
 # ================= 2. OTOMATISASI PEMBUATAN TABEL SAAT APLIKASI JALAN =================
@@ -18,10 +25,10 @@ def inisialisasi_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Tabel Pengguna (Mahasiswa) - Menggunakan AUTOINCREMENT khas SQLite
+    # Tabel Pengguna (Mahasiswa) - Menggunakan SERIAL khas PostgreSQL
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         nim TEXT UNIQUE,
         nama TEXT
     )
@@ -30,7 +37,7 @@ def inisialisasi_database():
     # Tabel Kuis
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS quizzes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         judul TEXT,
         deadline TEXT
     )
@@ -39,7 +46,7 @@ def inisialisasi_database():
     # Tabel Soal
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS questions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         quiz_id INTEGER,
         pertanyaan TEXT,
         opsi_a TEXT,
@@ -53,7 +60,7 @@ def inisialisasi_database():
     # Tabel Nilai & Komentar
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS grades (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER,
         quiz_id INTEGER,
         nilai_total INTEGER,
@@ -70,7 +77,7 @@ def inisialisasi_database():
 try:
     inisialisasi_database()
 except Exception as e:
-    print(f"Log info: {e}")
+    print(f"Log info database: {e}")
 
 
 # ================= 3. KORIDOR MAHASISWA =================
@@ -85,14 +92,16 @@ def login():
         cursor = conn.cursor()
         
         try:
-            # Mengubah %s menjadi ? khas SQLite
-            cursor.execute('INSERT INTO users (nim, nama) VALUES (?, ?)', (nim, nama))
+            # Mengubah placeholder menjadi %s khas PostgreSQL
+            cursor.execute('INSERT INTO users (nim, nama) VALUES (%s, %s)', (nim, nama))
             conn.commit()
-        except sqlite3.IntegrityError:
-            # Menangani NIM yang sudah terdaftar secara aman di SQLite
-            pass
+        except errors.UniqueViolation:
+            # Jika ada IntegrityError / UniqueViolation (NIM sudah terdaftar), batalkan transaksi yang gagal secara aman
+            conn.rollback()
+        except Exception:
+            conn.rollback()
             
-        cursor.execute('SELECT * FROM users WHERE nim = ?', (nim,))
+        cursor.execute('SELECT * FROM users WHERE nim = %s', (nim,))
         user = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -116,7 +125,7 @@ def dashboard_kuis():
     cursor.execute('SELECT * FROM quizzes')
     quizzes = cursor.fetchall()
     
-    cursor.execute('SELECT quiz_id, nilai_total, komentar FROM grades WHERE user_id = ?', (session['user_id'],))
+    cursor.execute('SELECT quiz_id, nilai_total, komentar FROM grades WHERE user_id = %s', (session['user_id'],))
     grades = cursor.fetchall()
     
     cursor.close()
@@ -134,12 +143,11 @@ def kerjakan_kuis(quiz_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT * FROM quizzes WHERE id = ?', (quiz_id,))
+    cursor.execute('SELECT * FROM quizzes WHERE id = %s', (quiz_id,))
     kuis = cursor.fetchone()
     
     waktu_sekarang = datetime.now()
     
-    # SQLite menyimpan datetime sebagai string text, kita parse kembali ke objek datetime Python
     if kuis and kuis['deadline']:
         try:
             deadline_dt = datetime.strptime(kuis['deadline'], '%Y-%m-%dT%H:%M')
@@ -156,7 +164,7 @@ def kerjakan_kuis(quiz_id):
             return redirect(url_for('dashboard_kuis'))
 
     if request.method == 'POST':
-        cursor.execute('SELECT * FROM questions WHERE quiz_id = ?', (quiz_id,))
+        cursor.execute('SELECT * FROM questions WHERE quiz_id = %s', (quiz_id,))
         questions = cursor.fetchall()
         
         jawaban_benar_count = 0
@@ -169,17 +177,20 @@ def kerjakan_kuis(quiz_id):
         
         nilai_akhir = int((jawaban_benar_count / total_soal) * 100) if total_soal > 0 else 0
 
+        # Menyimpan waktu_submit sebagai string agar aman
+        waktu_str = waktu_sekarang.strftime('%Y-%m-%d %H:%M:%S')
+
         cursor.execute('''
             INSERT INTO grades (user_id, quiz_id, nilai_total, komentar, waktu_submit)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (session['user_id'], quiz_id, nilai_akhir, '', waktu_sekarang))
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (session['user_id'], quiz_id, nilai_akhir, '', waktu_str))
         
         conn.commit()
         cursor.close()
         conn.close()
         return redirect(url_for('dashboard_kuis'))
 
-    cursor.execute('SELECT * FROM questions WHERE quiz_id = ?', (quiz_id,))
+    cursor.execute('SELECT * FROM questions WHERE quiz_id = %s', (quiz_id,))
     questions = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -231,7 +242,7 @@ def tambah_kuis():
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO quizzes (judul, deadline) VALUES (?, ?)', (judul, deadline))
+    cursor.execute('INSERT INTO quizzes (judul, deadline) VALUES (%s, %s)', (judul, deadline))
     conn.commit()
     cursor.close()
     conn.close()
@@ -243,9 +254,9 @@ def hapus_kuis(quiz_id):
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM quizzes WHERE id = ?', (quiz_id,))
-    cursor.execute('DELETE FROM questions WHERE quiz_id = ?', (quiz_id,))
-    cursor.execute('DELETE FROM grades WHERE quiz_id = ?', (quiz_id,))
+    cursor.execute('DELETE FROM quizzes WHERE id = %s', (quiz_id,))
+    cursor.execute('DELETE FROM questions WHERE quiz_id = %s', (quiz_id,))
+    cursor.execute('DELETE FROM grades WHERE quiz_id = %s', (quiz_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -267,7 +278,7 @@ def tambah_soal():
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO questions (quiz_id, pertanyaan, opsi_a, opsi_b, opsi_c, opsi_d, jawaban_benar)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     ''', (quiz_id, pertanyaan, opsi_a, opsi_b, opsi_c, opsi_d, jawaban_benar))
     conn.commit()
     cursor.close()
@@ -280,7 +291,7 @@ def hapus_soal(question_id):
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM questions WHERE id = ?', (question_id,))
+    cursor.execute('DELETE FROM questions WHERE id = %s', (question_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -295,7 +306,7 @@ def beri_komentar(grade_id):
     
     if request.method == 'POST':
         komentar = request.form['komentar']
-        cursor.execute('UPDATE grades SET komentar = ? WHERE id = ?', (komentar, grade_id))
+        cursor.execute('UPDATE grades SET komentar = %s WHERE id = %s', (komentar, grade_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -305,7 +316,7 @@ def beri_komentar(grade_id):
         SELECT grades.*, users.nama, users.nim 
         FROM grades 
         JOIN users ON grades.user_id = users.id 
-        WHERE grades.id = ?
+        WHERE grades.id = %s
     ''', (grade_id,))
     data = cursor.fetchone()
     cursor.close()
