@@ -9,7 +9,6 @@ app = Flask(__name__)
 app.secret_key = 'sikc_poltekba_key'  # Kunci pengaman untuk session
 
 # ================= 1. FUNGSI KONEKSI DATABASE (POSTGRESQL CLOUD) =================
-# Menggunakan PENYIMPANAN_URL sesuai dengan Awalan Kustom di Vercel kamu
 def get_db_connection():
     database_url = os.environ.get('PENYIMPANAN_URL')
     conn = psycopg2.connect(database_url, sslmode='require')
@@ -82,29 +81,42 @@ def login():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        try:
-            cursor.execute('INSERT INTO users (nim, nama) VALUES (%s, %s)', (nim, nama))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            
+        # Langkah 1: Cek apakah user dengan NIM ini sudah terdaftar
         cursor.execute('SELECT * FROM users WHERE nim = %s', (nim,))
         user = cursor.fetchone()
+        
+        # Langkah 2: Jika belum ada, otomatis daftarkan sebagai user baru (Sign Up otomatis)
+        if not user:
+            try:
+                cursor.execute('INSERT INTO users (nim, nama) VALUES (%s, %s)', (nim, nama))
+                conn.commit()
+                
+                # Ambil kembali data user yang baru saja dibuat untuk mendapatkan ID-nya
+                cursor.execute('SELECT * FROM users WHERE nim = %s', (nim,))
+                user = cursor.fetchone()
+            except Exception as e:
+                conn.rollback()
+                print(f"Gagal mendaftarkan mahasiswa baru: {e}")
+        
         cursor.close()
         conn.close()
 
+        # Langkah 3: Jika data user ada (baik user lama atau baru), simpan ke session
         if user:
             session['user_id'] = str(user['id'])
             session['nama'] = str(user['nama'])
             session['nim'] = str(user['nim'])
             session['role'] = 'user'
             return redirect(url_for('dashboard_kuis'))
+        else:
+            flash("Gagal memproses masuk aplikasi. Silakan coba lagi.")
         
     return render_template('login.html')
 
 @app.route('/dashboard')
 def dashboard_kuis():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: 
+        return redirect(url_for('login'))
         
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -134,7 +146,8 @@ def dashboard_kuis():
 
 @app.route('/kerjakan/<int:quiz_id>', methods=['GET', 'POST'])
 def kerjakan_kuis(quiz_id):
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: 
+        return redirect(url_for('login'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -239,7 +252,8 @@ def admin_dashboard():
 
 @app.route('/admin/tambah-kuis', methods=['POST'])
 def tambah_kuis():
-    if session.get('role') != 'admin': return redirect(url_for('login'))
+    if session.get('role') != 'admin': 
+        return redirect(url_for('login'))
     judul = request.form['judul']
     deadline = request.form['deadline']
     
@@ -253,7 +267,8 @@ def tambah_kuis():
 
 @app.route('/admin/hapus-kuis/<int:quiz_id>')
 def hapus_kuis(quiz_id):
-    if session.get('role') != 'admin': return redirect(url_for('login'))
+    if session.get('role') != 'admin': 
+        return redirect(url_for('login'))
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -267,7 +282,8 @@ def hapus_kuis(quiz_id):
 
 @app.route('/admin/tambah-soal', methods=['POST'])
 def tambah_soal():
-    if session.get('role') != 'admin': return redirect(url_for('login'))
+    if session.get('role') != 'admin': 
+        return redirect(url_for('login'))
     
     quiz_id = request.form['quiz_id']
     pertanyaan = request.form['pertanyaan']
@@ -290,7 +306,8 @@ def tambah_soal():
 
 @app.route('/admin/hapus-soal/<int:question_id>')
 def hapus_soal(question_id):
-    if session.get('role') != 'admin': return redirect(url_for('login'))
+    if session.get('role') != 'admin': 
+        return redirect(url_for('login'))
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -302,7 +319,8 @@ def hapus_soal(question_id):
 
 @app.route('/admin/komentar/<int:grade_id>', methods=['GET', 'POST'])
 def beri_komentar(grade_id):
-    if session.get('role') != 'admin': return redirect(url_for('login'))
+    if session.get('role') != 'admin': 
+        return redirect(url_for('login'))
     
     conn = get_db_connection()
     cursor = conn.cursor()
